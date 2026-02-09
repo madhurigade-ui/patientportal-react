@@ -14,26 +14,64 @@ import {
   Smile,
   History,
   CalendarClock,
-  X
+  X,
+  CreditCard
 } from 'lucide-react';
 import { Button } from '@/app/components/ui/button';
 import { Card } from '@/app/components/ui/card';
 import { useAppointments } from '@/app/components/AppointmentsContext';
-import { fetchAppConfig, AppConfig } from '@/services/apiClient';
+import { fetchAppConfig, AppConfig, apiRequest } from '@/services/apiClient';
+import { usePatientStore, useAuthStore } from '@/stores';
+import { environment } from '@/config/environment';
+
+// Account balance response type
+interface AccountBalance {
+  totalBalance: number;
+  pendingBalance: number;
+}
 
 export function SummaryPage() {
   const navigate = useNavigate();
   const { appointments, cancelAppointment, updateAppointmentStatus } = useAppointments();
   const [appConfig, setAppConfig] = useState<AppConfig | null>(null);
+  const [accountBalance, setAccountBalance] = useState<number>(0);
+  const [isLoadingBalance, setIsLoadingBalance] = useState(true);
 
-  // Fetch app config on mount
+  // Get patient data from stores
+  const { profile } = usePatientStore();
+  const { patientId } = useAuthStore();
+
+  // Fetch app config and account balance on mount
   useEffect(() => {
     fetchAppConfig().then((config) => {
       if (config) {
         setAppConfig(config);
       }
     });
-  }, []);
+
+    // Fetch account balance
+    if (patientId) {
+      fetchAccountBalance();
+    }
+  }, [patientId]);
+
+  // Fetch account balance from API
+  const fetchAccountBalance = async () => {
+    try {
+      setIsLoadingBalance(true);
+      const { clientId } = environment;
+      const response = await apiRequest<AccountBalance>(
+        `/${clientId}/patients/${patientId}/balance`,
+        { method: 'GET' }
+      );
+      setAccountBalance(response?.totalBalance || 0);
+    } catch (error) {
+      console.error('[SummaryPage] Error fetching balance:', error);
+      setAccountBalance(0);
+    } finally {
+      setIsLoadingBalance(false);
+    }
+  };
 
   // Get logo URL with fallback
   const getLogoUrl = (): string => {
@@ -128,6 +166,14 @@ export function SummaryPage() {
     }
   };
 
+  // Format currency
+  const formatCurrency = (amount: number): string => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+    }).format(amount);
+  };
+
   return (
     <div className="space-y-6">
       {/* Page Header */}
@@ -135,8 +181,10 @@ export function SummaryPage() {
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
       >
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Dashboard</h1>
-        <p className="text-gray-600 dark:text-gray-400 mt-1">Welcome back! Here's your account summary</p>
+        <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+          Welcome, {profile?.firstName || 'Patient'}
+        </h1>
+        <p className="text-gray-600 dark:text-gray-400 mt-1">Here's your patient dashboard</p>
       </motion.div>
 
       {/* Top Cards Grid */}
@@ -157,11 +205,24 @@ export function SummaryPage() {
             
             <div className="text-center py-6">
               <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">Your Current Balance</p>
-              <p className="text-5xl font-bold text-purple-600 dark:text-purple-400">$0.00</p>
-              <div className="flex items-center justify-center gap-2 mt-4 text-green-600 dark:text-green-400">
-                <CheckCircle2 className="w-5 h-5" />
-                <p className="text-sm font-medium">Your account is paid in full. Thank you!</p>
-              </div>
+              {isLoadingBalance ? (
+                <p className="text-5xl font-bold text-purple-600 dark:text-purple-400">...</p>
+              ) : (
+                <p className="text-5xl font-bold text-purple-600 dark:text-purple-400">
+                  {formatCurrency(accountBalance)}
+                </p>
+              )}
+              {accountBalance > 0 ? (
+                <Button className="mt-4 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white">
+                  <CreditCard className="w-4 h-4 mr-2" />
+                  Pay Now
+                </Button>
+              ) : (
+                <div className="flex items-center justify-center gap-2 mt-4 text-green-600 dark:text-green-400">
+                  <CheckCircle2 className="w-5 h-5" />
+                  <p className="text-sm font-medium">Your account is paid in full. Thank you!</p>
+                </div>
+              )}
             </div>
 
             <Button className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white">
